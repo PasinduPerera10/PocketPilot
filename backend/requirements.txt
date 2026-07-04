@@ -1,0 +1,22 @@
+# PocketPilot Server - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+
+# System Monitoring (optional - for battery/CPU/RAM status)
+psutil>=5.9.0
+
+# Screenshots (optional - for /screenshot endpoint)
+Pillow>=10.0.0
+
+# Mouse & Keyboard Control (optional - for mouse/keyboard endpoints)
+pyautogui>=0.9.54
+
+# Windows Volume Control (optional - for /volume/set, /volume/mute on Windows)
+# pycaw  # Uncomment on Windows: pip install pycaw comtypes
+
+# WebSocket support (included with uvicorn[standard])
+# websockets  # Already included by uvicorn[standard]

@@ -1,6 +1,6 @@
 # PocketPilot — Remote Laptop Control
 
-Control your laptop from your phone over local WiFi. Works fully offline — no internet required.
+Control your laptop from your phone over local WiFi. Works fully offline - no internet required.
 
 ## Architecture
 

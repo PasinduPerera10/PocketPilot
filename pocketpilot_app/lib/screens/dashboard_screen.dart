@@ -353,12 +353,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _execute('Mute', _service.volumeMute)),
       _ActionItem(Icons.lock, 'Lock', Colors.blueGrey, () =>
           _execute('Lock', _service.powerLock)),
-      _ActionItem(Icons.power_settings_new, 'Shutdown', Colors.red, () =>
-          _confirmAndExecute('Shutdown computer?', 'Shutdown', _service.powerShutdown)),
-      _ActionItem(Icons.restart_alt, 'Restart', Colors.orange, () =>
-          _confirmAndExecute('Restart computer?', 'Restart', _service.powerRestart)),
-      _ActionItem(Icons.nightlight_round, 'Sleep', Colors.indigo, () =>
-          _confirmAndExecute('Sleep computer?', 'Sleep', _service.powerSleep)),
+      // _ActionItem(Icons.power_settings_new, 'Shutdown', Colors.red, () =>
+      //     _confirmAndExecute('Shutdown computer?', 'Shutdown', _service.powerShutdown)),
+      // _ActionItem(Icons.restart_alt, 'Restart', Colors.orange, () =>
+      //     _confirmAndExecute('Restart computer?', 'Restart', _service.powerRestart)),
+      // _ActionItem(Icons.nightlight_round, 'Sleep', Colors.indigo, () =>
+      //     _confirmAndExecute('Sleep computer?', 'Sleep', _service.powerSleep)),
     ];
 
     return GridView.builder(
@@ -403,16 +403,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildFeatureTiles() {
     final features = [
-      _FeatureItem(Icons.touch_app, 'Trackpad', 'Full-screen gesture trackpad\nwith WebSocket low latency',
-          const Color(0xFF0F3460), () {
-        Navigator.push(context, MaterialPageRoute(
-            builder: (_) => TrackpadScreen(service: _service)));
-      }),
-      _FeatureItem(Icons.keyboard, 'Keyboard', 'Send text, special keys,\nand shortcuts',
-          const Color(0xFF1A1A2E), () {
-        Navigator.push(context, MaterialPageRoute(
-            builder: (_) => KeyboardScreen(service: _service)));
-      }),
+      // _FeatureItem(Icons.touch_app, 'Trackpad', 'Full-screen gesture trackpad\nwith WebSocket low latency',
+      //     const Color(0xFF0F3460), () {
+      //   Navigator.push(context, MaterialPageRoute(
+      //       builder: (_) => TrackpadScreen(service: _service)));
+      // }),
+      // _FeatureItem(Icons.keyboard, 'Keyboard', 'Send text, special keys,\nand shortcuts',
+      //     const Color(0xFF1A1A2E), () {
+      //   Navigator.push(context, MaterialPageRoute(
+      //       builder: (_) => KeyboardScreen(service: _service)));
+      // }),
       _FeatureItem(Icons.power_settings_new, 'Power Controls', 'Shutdown, Sleep, Lock\nwith confirmation dialogs',
           const Color(0xFF16213E), () {
         Navigator.push(context, MaterialPageRoute(
@@ -423,21 +423,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Navigator.push(context, MaterialPageRoute(
             builder: (_) => ScreenMirrorScreen(service: _service)));
       }),
-      _FeatureItem(Icons.music_note, 'Media Controls', 'Play/Pause, Next/Prev\nmusic and video',
-          const Color(0xFF0F3460), () {
-        Navigator.push(context, MaterialPageRoute(
-            builder: (_) => MediaScreen(service: _service)));
-      }),
-      _FeatureItem(Icons.rocket_launch, 'App Launcher', 'Launch apps with\npresets or custom name',
-          const Color(0xFF1A1A2E), () {
-        Navigator.push(context, MaterialPageRoute(
-            builder: (_) => AppLauncherScreen(service: _service)));
-      }),
-      _FeatureItem(Icons.volume_up, 'Volume Control', 'Precise volume slider\nwith presets and mute',
-          const Color(0xFF16213E), () {
-        Navigator.push(context, MaterialPageRoute(
-            builder: (_) => VolumeScreen(service: _service)));
-      }),
+      // _FeatureItem(Icons.music_note, 'Media Controls', 'Play/Pause, Next/Prev\nmusic and video',
+      //     const Color(0xFF0F3460), () {
+      //   Navigator.push(context, MaterialPageRoute(
+      //       builder: (_) => MediaScreen(service: _service)));
+      // }),
+      // _FeatureItem(Icons.rocket_launch, 'App Launcher', 'Launch apps with\npresets or custom name',
+      //     const Color(0xFF1A1A2E), () {
+      //   Navigator.push(context, MaterialPageRoute(
+      //       builder: (_) => AppLauncherScreen(service: _service)));
+      // }),
+      // _FeatureItem(Icons.volume_up, 'Volume Control', 'Precise volume slider\nwith presets and mute',
+      //     const Color(0xFF16213E), () {
+      //   Navigator.push(context, MaterialPageRoute(
+      //       builder: (_) => VolumeScreen(service: _service)));
+      // }),
       _FeatureItem(Icons.folder_open, 'File Browser', 'Browse and navigate\nlaptop filesystem',
           const Color(0xFF1A1A2E), () {
         Navigator.push(context, MaterialPageRoute(

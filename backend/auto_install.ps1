@@ -116,19 +116,22 @@ try {
     Write-Log "  Warning: Could not add firewall rule: $_" -Color Yellow
 }
 
-# Step 5: Create scheduled task
+# Step 5: Create scheduled task (with network wait)
 Write-Log "[4/6] Creating auto-start scheduled task..." -Color Green
 try {
     # Remove existing task
     schtasks /delete /tn $taskName /f 2>$null | Out-Null
     
-    # Create new task
-    $action = New-ScheduledTaskAction -Execute "python.exe" -Argument "`"$serverScript`"" -WorkingDirectory "$scriptPath"
-    $trigger = New-ScheduledTaskTrigger -AtStartup
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+    # Create task that waits for network then starts server
+    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c cd /d `"$scriptPath`" && timeout /t 10 /nobreak >nul && python pocketpilot_server.py"
+    $triggers = @(
+        (New-ScheduledTaskTrigger -AtStartup -RandomDelay "00:00:30"),
+        (New-ScheduledTaskTrigger -AtLogon -RandomDelay "00:00:10")
+    )
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
     $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
     
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force | Out-Null
     Write-Log "  Scheduled task '$taskName' created!" -Color Green
 } catch {
     Write-Log "  Warning: Could not create scheduled task: $_" -Color Yellow
@@ -154,11 +157,10 @@ try {
     # Wait for server to be ready
     Start-Sleep -Seconds 3
     
-    # Fetch IP and token
+    # Fetch server details
     try {
         $response = Invoke-WebRequest -Uri "http://127.0.0.1:8000/" -UseBasicParsing -TimeoutSec 5
         $data = $response.Content | ConvertFrom-Json
-        $token = $data.token
         $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -ne "Loopback" -and $_.PrefixOrigin -ne "WellKnown" } | Select-Object -First 1).IPAddress
         
         Write-Log "" ""
@@ -169,12 +171,10 @@ try {
         Write-Log "  Server is running!" -Color Green
         Write-Log "  IP:      $ip" -Color White
         Write-Log "  Port:    8000" -Color White
-        Write-Log "  Token:   $token" -Color Yellow
         Write-Log "" ""
         Write-Log "  Open the PocketPilot app on your phone" -Color White
         Write-Log "  and enter:" -Color White
         Write-Log "    IP:     $ip" -Color Cyan
-        Write-Log "    Token:  $token" -Color Cyan
         Write-Log "    Port:   8000" -Color Cyan
         Write-Log "" ""
     } catch {
@@ -189,12 +189,12 @@ try {
 Write-Log "[6/6] Creating desktop shortcut..." -Color Green
 try {
     $desktopPath = [Environment]::GetFolderPath("Desktop")
-    $shortcutPath = Join-Path $desktopPath "PocketPilot Token.lnk"
+    $shortcutPath = Join-Path $desktopPath "PocketPilot Server Info.lnk"
     
     $wshShell = New-Object -ComObject WScript.Shell
     $shortcut = $wshShell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = "powershell.exe"
-    $shortcut.Arguments = "-ExecutionPolicy Bypass -Command `"`$r = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/' -UseBasicParsing; `$d = `$r.Content | ConvertFrom-Json; Write-Host 'Token: ' -NoNewline -ForegroundColor Yellow; Write-Host `$d.token -ForegroundColor Cyan; Write-Host 'IP: ' -NoNewline -ForegroundColor Yellow; `$ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { `$_.InterfaceAlias -ne 'Loopback' -and `$_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress; Write-Host `$ip -ForegroundColor Cyan; Read-Host '`nPress Enter to exit'`""
+    $shortcut.Arguments = "-ExecutionPolicy Bypass -Command `"`$r = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/' -UseBasicParsing; `$d = `$r.Content | ConvertFrom-Json; Write-Host 'Server is running!' -ForegroundColor Green; Write-Host 'IP: ' -NoNewline -ForegroundColor Yellow; `$ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { `$_.InterfaceAlias -ne 'Loopback' -and `$_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress; Write-Host `$ip -ForegroundColor Cyan; Write-Host 'Port: 8000' -ForegroundColor Cyan; Read-Host '`nPress Enter to exit'`""
     $shortcut.Description = "Show PocketPilot connection details"
     $shortcut.Save()
     Write-Log "  Desktop shortcut created!" -Color Green
@@ -206,8 +206,8 @@ Write-Log "" ""
 Write-Log "The server will now start automatically every time" -Color Cyan
 Write-Log "you boot your laptop and connect to WiFi." -Color Cyan
 Write-Log "" ""
-Write-Log "To see IP/token anytime, double-click:" -Color Gray
-Write-Log "  Desktop → 'PocketPilot Token' shortcut" -Color Gray
+Write-Log "To see IP anytime, double-click:" -Color Gray
+Write-Log "  Desktop -> 'PocketPilot Server Info' shortcut" -Color Gray
 Write-Log "" ""
 Write-Log "Press any key to exit..." -Color Gray
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

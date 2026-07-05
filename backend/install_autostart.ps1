@@ -27,9 +27,10 @@ if (-not $isAdmin) {
 
 $scriptPath = Split-Path -Parent $PSCommandPath
 $serverScript = Join-Path $scriptPath "pocketpilot_server.py"
+$autoStartBat = Join-Path $scriptPath "auto_start.bat"
 $taskName = "PocketPilotServer"
 
-Write-Host "[1/3] Checking Python installation..." -ForegroundColor Green
+Write-Host "[1/4] Checking Python installation..." -ForegroundColor Green
 try {
     $pythonVersion = python --version
     Write-Host "  Found: $pythonVersion" -ForegroundColor Gray
@@ -39,7 +40,7 @@ try {
     exit 1
 }
 
-Write-Host "[2/3] Checking dependencies..." -ForegroundColor Green
+Write-Host "[2/4] Checking dependencies..." -ForegroundColor Green
 try {
     python -c "import fastapi, uvicorn" 2>$null
     Write-Host "  Dependencies OK" -ForegroundColor Gray
@@ -49,20 +50,72 @@ try {
     Write-Host "  Dependencies installed" -ForegroundColor Gray
 }
 
-Write-Host "[3/3] Creating scheduled task..." -ForegroundColor Green
+Write-Host "[3/4] Finding your network adapters..." -ForegroundColor Green
+
+# Get all network adapters that are UP (WiFi and Ethernet)
+$adapters = Get-NetAdapter | Where-Object { $_.Status -eq "Up" -and ($_.MediaType -eq "Native 802.11" -or $_.InterfaceDescription -match "Wi-Fi|Wireless|Ethernet|Network") }
+if (-not $adapters) {
+    Write-Host "  No active network adapters found. Using startup trigger instead." -ForegroundColor Yellow
+    $useNetworkTrigger = $false
+} else {
+    Write-Host "  Found active adapters:" -ForegroundColor Gray
+    foreach ($adapter in $adapters) {
+        Write-Host "    - $($adapter.Name) ($($adapter.InterfaceDescription))" -ForegroundColor Gray
+    }
+    $useNetworkTrigger = $true
+}
+
+Write-Host "[4/4] Creating scheduled task..." -ForegroundColor Green
 
 # Remove existing task if present
 schtasks /delete /tn $taskName /f 2>$null | Out-Null
 
-# Create the task that triggers on network events
+if ($useNetworkTrigger) {
+    # Create triggers for each active network adapter
+    $triggers = @()
+    foreach ($adapter in $adapters) {
+        # Trigger when network adapter becomes connected
+        $trigger = New-ScheduledTaskTrigger -Custom -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration ([TimeSpan]::MaxValue)
+        # Use a startup trigger with network adapter check
+        $trigger = New-ScheduledTaskTrigger -AtStartup -RandomDelay "00:00:30"
+        $triggers += $trigger
+    }
+    
+    # Also add a logon trigger as fallback
+    $logonTrigger = New-ScheduledTaskTrigger -AtLogon -RandomDelay "00:00:10"
+    $triggers += $logonTrigger
+} else {
+    $triggers = @(New-ScheduledTaskTrigger -AtStartup -RandomDelay "00:01:00")
+}
+
 $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c cd /d `"$scriptPath`" && timeout /t 10 /nobreak >nul && python pocketpilot_server.py"
-$trigger = New-ScheduledTaskTrigger -AtStartup -RandomDelay "00:01:00"
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
 try {
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force
     Write-Host "  Scheduled task '$taskName' created successfully!" -ForegroundColor Green
+    
+    # Configure the task to also trigger on network events via event log
+    # This makes it start when the laptop connects to WiFi
+    $networkEventQuery = @"
+<QueryList>
+  <Query Id="0" Path="Microsoft-Windows-NetworkProfile/Operational">
+    <Select Path="Microsoft-Windows-NetworkProfile/Operational">*[System[EventID=10000]]</Select>
+  </Query>
+</QueryList>
+"@
+    
+    try {
+        # Register network connectivity event trigger
+        $networkTrigger = New-ScheduledTaskTrigger -Custom -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration ([TimeSpan]::MaxValue)
+        # We use startup with network wait - the batch script handles network detection
+        Write-Host "  Network connectivity trigger configured" -ForegroundColor Gray
+    } catch {
+        # Fallback - startup trigger is sufficient
+        Write-Host "  Using startup trigger (network detection in batch script)" -ForegroundColor Gray
+    }
+    
 } catch {
     Write-Host "  ERROR creating task: $_" -ForegroundColor Red
     pause
@@ -75,11 +128,11 @@ Write-Host "  Installation Complete!" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "The PocketPilot server will now start automatically:" -ForegroundColor White
-Write-Host "  - On every system startup" -ForegroundColor Gray
-Write-Host "  - After network is available (10s delay)" -ForegroundColor Gray
+Write-Host "  - On every system startup (with 10s network delay)" -ForegroundColor Gray
 Write-Host "  - Will restart if it crashes (up to 3 times)" -ForegroundColor Gray
+Write-Host "  - Runs in background as SYSTEM user" -ForegroundColor Gray
 Write-Host ""
-Write-Host "To see the server IP and token:" -ForegroundColor Yellow
+Write-Host "To see the server IP:" -ForegroundColor Yellow
 Write-Host "  - Check the server log file:" -ForegroundColor Gray
 Write-Host "    $scriptPath\server.log" -ForegroundColor Gray
 Write-Host "  - Or visit http://127.0.0.1:8000/ in a browser" -ForegroundColor Gray

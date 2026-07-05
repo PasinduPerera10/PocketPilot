@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class PocketPilotService {
   String _baseUrl = '';
-  String _token = '';
   WebSocketChannel? _wsChannel;
   final Duration timeout = const Duration(seconds: 5);
 
@@ -18,7 +17,6 @@ class PocketPilotService {
   bool get isConnected => _isConnected;
 
   String get baseUrl => _baseUrl;
-  String get token => _token;
 
   // ==================== PIN LOCK ====================
 
@@ -54,13 +52,11 @@ class PocketPilotService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final ip = prefs.getString('server_ip');
-      final token = prefs.getString('server_token');
       final port = prefs.getInt('server_port') ?? 8000;
 
-      if (ip != null && token != null && ip.isNotEmpty && token.isNotEmpty) {
+      if (ip != null && ip.isNotEmpty) {
         _baseUrl = 'http://$ip:$port';
-        _token = token;
-        return {'ip': ip, 'token': token, 'port': port.toString()};
+        return {'ip': ip, 'port': port.toString()};
       }
     } catch (e) {
       debugPrint('Error loading saved connection: $e');
@@ -69,28 +65,24 @@ class PocketPilotService {
   }
 
   /// Save connection to SharedPreferences
-  Future<void> saveConnection(String ip, String token, {int port = 8000}) async {
+  Future<void> saveConnection(String ip, {int port = 8000}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('server_ip', ip);
-      await prefs.setString('server_token', token);
       await prefs.setInt('server_port', port);
       _baseUrl = 'http://$ip:$port';
-      _token = token;
     } catch (e) {
       debugPrint('Error saving connection: $e');
     }
   }
 
-  /// Clear saved connection
+  /// Clear saved connection (full disconnect + remove persisted data)
   Future<void> clearConnection() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('server_ip');
-      await prefs.remove('server_token');
       await prefs.remove('server_port');
       _baseUrl = '';
-      _token = '';
       _isConnected = false;
       disconnectWebSocket();
     } catch (e) {
@@ -98,13 +90,23 @@ class PocketPilotService {
     }
   }
 
-  /// Ping the server to verify connection (tests with auth)
+  /// Clear only persisted connection data (keeps in-memory baseUrl for current session)
+  Future<void> clearPersistedConnection() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('server_ip');
+      await prefs.remove('server_port');
+    } catch (e) {
+      debugPrint('Error clearing persisted connection: $e');
+    }
+  }
+
+  /// Ping the server to verify connection
   Future<bool> testConnection() async {
     try {
       final response = await http
           .get(
             Uri.parse('$_baseUrl/status'),
-            headers: _authHeaders,
           )
           .timeout(timeout);
       _isConnected = response.statusCode == 200;
@@ -115,18 +117,12 @@ class PocketPilotService {
     }
   }
 
-  /// Get auth headers
-  Map<String, String> get _authHeaders => {
-        'Authorization': 'Bearer $_token',
-        'Content-Type': 'application/json',
-      };
-
   // ==================== HELPER ====================
 
   Future<Map<String, dynamic>?> _get(String endpoint) async {
     try {
       final response = await http
-          .get(Uri.parse('$_baseUrl$endpoint'), headers: _authHeaders)
+          .get(Uri.parse('$_baseUrl$endpoint'))
           .timeout(timeout);
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
@@ -144,7 +140,7 @@ class PocketPilotService {
       final response = await http
           .post(
             Uri.parse('$_baseUrl$endpoint'),
-            headers: _authHeaders,
+            headers: {'Content-Type': 'application/json'},
             body: body != null ? jsonEncode(body) : null,
           )
           .timeout(timeout);
@@ -193,6 +189,15 @@ class PocketPilotService {
 
   // ==================== VOLUME ====================
 
+  /// Get current volume level (0-100), returns null on failure
+  Future<int?> volumeGet() async {
+    final result = await _get('/volume');
+    if (result != null && result['volume'] != null) {
+      return result['volume'] as int;
+    }
+    return null;
+  }
+
   Future<bool> volumeSet(int level) async {
     final result = await _post('/volume/set', body: {'level': level});
     return result?['status'] == 'ok';
@@ -209,7 +214,7 @@ class PocketPilotService {
   Future<Uint8List?> getScreenshot() async {
     try {
       final response = await http
-          .get(Uri.parse('$_baseUrl/screenshot'), headers: _authHeaders)
+          .get(Uri.parse('$_baseUrl/screenshot'))
           .timeout(timeout);
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         _isConnected = true;
@@ -282,13 +287,10 @@ class PocketPilotService {
   /// Connect to WebSocket for low-latency trackpad control
   bool connectWebSocket() {
     try {
-      if (_baseUrl.isEmpty || _token.isEmpty) return false;
+      if (_baseUrl.isEmpty) return false;
 
       final wsUrl = _baseUrl.replaceFirst('http://', 'ws://');
       _wsChannel = WebSocketChannel.connect(Uri.parse('$wsUrl/ws/mouse'));
-
-      // Send auth token as first message
-      _wsChannel!.sink.add(_token);
 
       _isConnected = true;
       return true;

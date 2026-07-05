@@ -9,7 +9,7 @@ Usage:
     pip install -r requirements.txt
     python server.py
 
-The server will print a pairing token and the laptop's local IP.
+The server will print the laptop's local IP and port.
 Use the PocketPilot Flutter app to connect.
 """
 
@@ -17,20 +17,15 @@ import asyncio
 import json
 import os
 import platform
-import random
-import shutil
 import socket
-import string
 import subprocess
-import sys
 import time
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query, Header
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -39,22 +34,12 @@ from pydantic import BaseModel
 
 HOST = "0.0.0.0"
 PORT = 8000
-TOKEN_LENGTH = 8
 
 # ==================== PLATFORM DETECTION ====================
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
 IS_LINUX = platform.system() == "Linux"
-
-# ==================== PAIRING TOKEN ====================
-
-def generate_token(length: int = TOKEN_LENGTH) -> str:
-    """Generate a random alphanumeric pairing token."""
-    chars = string.ascii_uppercase + string.digits
-    return ''.join(random.choices(chars, k=length))
-
-PAIRING_TOKEN = generate_token()
 
 # ==================== FASTAPI APP ====================
 
@@ -68,22 +53,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ==================== AUTH DEPENDENCY ====================
-
-async def verify_token(authorization: str = Header(None)):
-    """Dependency to verify the Bearer token."""
-    if authorization is None:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-    
-    parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Invalid Authorization format. Use: Bearer <token>")
-    
-    if parts[1] != PAIRING_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid pairing token")
-    
-    return True
 
 # ==================== REQUEST MODELS ====================
 
@@ -105,6 +74,9 @@ class KeyboardKeyRequest(BaseModel):
 
 class AppOpenRequest(BaseModel):
     name: str
+
+class WallpaperSetRequest(BaseModel):
+    path: str
 
 # ==================== SYSTEM COMMANDS ====================
 
@@ -132,7 +104,7 @@ def get_status() -> dict:
         "battery_percent": None,
         "battery_charging": None,
     }
-    
+
     try:
         import psutil
         # CPU
@@ -146,7 +118,7 @@ def get_status() -> dict:
             status["battery_charging"] = battery.power_plugged
     except ImportError:
         pass
-    
+
     return status
 
 # ==================== POWER COMMANDS ====================
@@ -427,13 +399,13 @@ def list_files(path: str = ".") -> dict:
     try:
         # Resolve the path
         p = Path(path).expanduser().resolve()
-        
+
         if not p.exists():
             return {"status": "error", "message": f"Path does not exist: {path}"}
-        
+
         if not p.is_dir():
             return {"status": "error", "message": f"Not a directory: {path}"}
-        
+
         entries = []
         for entry in sorted(p.iterdir()):
             try:
@@ -453,7 +425,7 @@ def list_files(path: str = ".") -> dict:
                     "size": 0,
                     "modified": None,
                 })
-        
+
         return {
             "status": "ok",
             "path": str(p),
@@ -463,6 +435,107 @@ def list_files(path: str = ".") -> dict:
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+# ==================== WALLPAPER COMMANDS ====================
+
+def wallpaper_set(image_path: str):
+    """Set desktop wallpaper from a file path."""
+    try:
+        import ctypes
+        if IS_WINDOWS:
+            # Convert to absolute path
+            abs_path = str(Path(image_path).resolve())
+            # SPI_SETDESKWALLPAPER = 20, SPIF_UPDATEINIFILE = 0x01, SPIF_SENDCHANGE = 0x02
+            result = ctypes.windll.user32.SystemParametersInfoW(20, 0, abs_path, 0x03)
+            if not result:
+                return {"status": "error", "message": "Failed to set wallpaper (SPI failed)"}
+            return {"status": "ok", "message": f"Wallpaper set to: {abs_path}"}
+        elif IS_MAC:
+            abs_path = str(Path(image_path).resolve())
+            script = f'tell application "Finder" to set desktop picture to POSIX file "{abs_path}"'
+            subprocess.run(["osascript", "-e", script], check=True)
+            return {"status": "ok", "message": f"Wallpaper set to: {abs_path}"}
+        elif IS_LINUX:
+            abs_path = str(Path(image_path).resolve())
+            # Try common desktop environments
+            try:
+                subprocess.run(["gsettings", "set", "org.gnome.desktop.background", "picture-uri", f"file://{abs_path}"], check=True)
+            except Exception:
+                try:
+                    subprocess.run(["feh", "--bg-scale", abs_path], check=True)
+                except Exception:
+                    return {"status": "error", "message": "Could not set wallpaper. Install gsettings or feh."}
+            return {"status": "ok", "message": f"Wallpaper set to: {abs_path}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    return {"status": "error", "message": "Unsupported platform"}
+
+def wallpaper_get_sources() -> dict:
+    """Get common wallpaper image directories and current wallpaper."""
+    result = {
+        "status": "ok",
+        "current": None,
+        "sources": [],
+    }
+    
+    # Get current wallpaper
+    try:
+        if IS_WINDOWS:
+            import ctypes
+            import ctypes.wintypes
+            MAX_PATH = 260
+            buf = ctypes.create_unicode_buffer(MAX_PATH)
+            ctypes.windll.user32.SystemParametersInfoW(0x73, MAX_PATH, buf, 0)  # SPI_GETDESKWALLPAPER = 0x73
+            result["current"] = buf.value
+        elif IS_MAC:
+            script = 'tell application "Finder" to get POSIX path of (desktop picture as alias)'
+            proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+            if proc.returncode == 0:
+                result["current"] = proc.stdout.strip()
+        elif IS_LINUX:
+            proc = subprocess.run(["gsettings", "get", "org.gnome.desktop.background", "picture-uri"], capture_output=True, text=True)
+            if proc.returncode == 0:
+                result["current"] = proc.stdout.strip().strip("'")
+    except Exception:
+        pass
+    
+    # Common wallpaper directories
+    search_dirs = []
+    if IS_WINDOWS:
+        search_dirs = [
+            os.path.join(os.environ.get("USERPROFILE", "C:/"), "Pictures"),
+            os.path.join(os.environ.get("USERPROFILE", "C:/"), "Downloads"),
+            os.environ.get("PUBLIC", "C:/Users/Public") + "/Pictures",
+            "C:/Windows/Web/Wallpaper",
+        ]
+    elif IS_MAC:
+        search_dirs = [
+            os.path.expanduser("~/Pictures"),
+            os.path.expanduser("~/Downloads"),
+            "/Library/Desktop Pictures",
+            "/System/Library/Desktop Pictures",
+        ]
+    elif IS_LINUX:
+        search_dirs = [
+            os.path.expanduser("~/Pictures"),
+            os.path.expanduser("~/Downloads"),
+            "/usr/share/backgrounds",
+            "/usr/share/wallpapers",
+        ]
+    
+    for directory in search_dirs:
+        d = Path(directory)
+        if d.exists() and d.is_dir():
+            images = []
+            for ext in ("*.jpg", "*.jpeg", "*.png", "*.bmp"):
+                images.extend(str(f) for f in d.glob(ext))
+            if images:
+                result["sources"].append({
+                    "path": str(d),
+                    "images": images,
+                })
+    
+    return result
+
 # ==================== REST ENDPOINTS ====================
 
 @app.get("/")
@@ -471,84 +544,93 @@ async def root():
         "status": "ok",
         "server": "PocketPilot",
         "version": "2.0.0",
-        "token": PAIRING_TOKEN,
     }
 
 @app.get("/status")
-async def status(_: bool = Depends(verify_token)):
+async def status():
     return get_status()
 
 @app.post("/power/shutdown")
-async def shutdown(_: bool = Depends(verify_token)):
+async def shutdown():
     return power_shutdown()
 
 @app.post("/power/sleep")
-async def sleep(_: bool = Depends(verify_token)):
+async def sleep():
     return power_sleep()
 
 @app.post("/power/restart")
-async def restart(_: bool = Depends(verify_token)):
+async def restart():
     return power_restart()
 
 @app.post("/power/lock")
-async def lock(_: bool = Depends(verify_token)):
+async def lock():
     return power_lock()
 
 @app.get("/volume")
-async def volume_get_endpoint(_: bool = Depends(verify_token)):
+async def volume_get_endpoint():
     level = volume_get()
     return {"status": "ok", "volume": level}
 
 @app.post("/volume/set")
-async def volume_set_endpoint(req: VolumeRequest, _: bool = Depends(verify_token)):
+async def volume_set_endpoint(req: VolumeRequest):
     return volume_set(req.level)
 
 @app.post("/volume/mute")
-async def mute(_: bool = Depends(verify_token)):
+async def mute():
     return volume_mute()
 
 @app.get("/screenshot")
-async def screenshot(_: bool = Depends(verify_token)):
+async def screenshot():
     img_bytes = take_screenshot()
     if img_bytes:
         return Response(content=img_bytes, media_type="image/jpeg")
     return {"status": "error", "message": "Screenshot failed"}
 
 @app.post("/mouse/move")
-async def mouse_move_endpoint(req: MouseMoveRequest, _: bool = Depends(verify_token)):
+async def mouse_move_endpoint(req: MouseMoveRequest):
     return mouse_move(req.dx, req.dy)
 
 @app.post("/mouse/click")
-async def mouse_click_endpoint(req: MouseClickRequest, _: bool = Depends(verify_token)):
+async def mouse_click_endpoint(req: MouseClickRequest):
     return mouse_click(req.button)
 
 @app.post("/keyboard/type")
-async def keyboard_type_endpoint(req: KeyboardTypeRequest, _: bool = Depends(verify_token)):
+async def keyboard_type_endpoint(req: KeyboardTypeRequest):
     return keyboard_type(req.text)
 
 @app.post("/keyboard/key")
-async def keyboard_key_endpoint(req: KeyboardKeyRequest, _: bool = Depends(verify_token)):
+async def keyboard_key_endpoint(req: KeyboardKeyRequest):
     return keyboard_key(req.key)
 
 @app.post("/media/play_pause")
-async def media_play_pause_endpoint(_: bool = Depends(verify_token)):
+async def media_play_pause_endpoint():
     return media_play_pause()
 
 @app.post("/media/next")
-async def media_next_endpoint(_: bool = Depends(verify_token)):
+async def media_next_endpoint():
     return media_next()
 
 @app.post("/media/prev")
-async def media_prev_endpoint(_: bool = Depends(verify_token)):
+async def media_prev_endpoint():
     return media_prev()
 
 @app.post("/app/open")
-async def app_open_endpoint(req: AppOpenRequest, _: bool = Depends(verify_token)):
+async def app_open_endpoint(req: AppOpenRequest):
     return app_open(req.name)
 
 @app.get("/files")
-async def files(path: str = Query(".", description="Directory path to list"), _: bool = Depends(verify_token)):
+async def files(path: str = Query(".", description="Directory path to list")):
     return list_files(path)
+
+# ==================== WALLPAPER ENDPOINTS ====================
+
+@app.get("/wallpaper/sources")
+async def wallpaper_get_sources_endpoint():
+    return wallpaper_get_sources()
+
+@app.post("/wallpaper/set")
+async def wallpaper_set_endpoint(req: WallpaperSetRequest):
+    return wallpaper_set(req.path)
 
 # ==================== WEBSOCKET: LIVE TRACKPAD ====================
 
@@ -556,34 +638,14 @@ async def files(path: str = Query(".", description="Directory path to list"), _:
 async def websocket_mouse(websocket: WebSocket):
     """WebSocket for low-latency live trackpad control."""
     await websocket.accept()
-    
-    # Authenticate via first message
-    authenticated = False
-    try:
-        # Expect first message to be the token
-        data = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
-        if data == PAIRING_TOKEN:
-            authenticated = True
-            await websocket.send_text(json.dumps({"type": "auth", "status": "ok"}))
-        else:
-            await websocket.send_text(json.dumps({"type": "auth", "status": "error", "message": "Invalid token"}))
-            await websocket.close()
-            return
-    except asyncio.TimeoutError:
-        await websocket.close()
-        return
-    
-    if not authenticated:
-        await websocket.close()
-        return
-    
+
     try:
         while True:
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
                 msg_type = msg.get("type", "")
-                
+
                 if msg_type == "move":
                     dx = msg.get("dx", 0)
                     dy = msg.get("dy", 0)
@@ -628,12 +690,11 @@ def print_banner():
 {'='*60}
 
   Server running on: http://{ip}:{PORT}
-  Pairing Token:    {PAIRING_TOKEN}
 
   To connect:
   1. Make sure your phone is on the same WiFi network
   2. Open the PocketPilot app on your phone
-  3. Enter IP: {ip}  and Token: {PAIRING_TOKEN}
+  3. Enter IP: {ip}
 
   Endpoints:
     GET  /status          - System status (CPU, RAM, battery, IP)
@@ -661,7 +722,7 @@ def print_banner():
 
 def main():
     print_banner()
-    
+
     # Run the server
     uvicorn.run(
         app,

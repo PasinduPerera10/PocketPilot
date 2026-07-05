@@ -7,10 +7,10 @@ Tests all endpoints of the PocketPilot server.
 Usage:
     1. Start the server in one terminal:
        python pocketpilot_server.py
-    
+
     2. In another terminal, run this test:
        python test_server.py
-    
+
     Or run server in background and test:
        start /B python pocketpilot_server.py
        timeout /T 3
@@ -19,7 +19,6 @@ Usage:
 
 import json
 import sys
-import time
 import urllib.request
 import urllib.error
 
@@ -27,28 +26,9 @@ import urllib.error
 
 SERVER_URL = "http://127.0.0.1:8000"
 
-# We'll fetch the token from the root endpoint
-TOKEN = None
-
-def get_token():
-    """Fetch the pairing token from the server."""
-    global TOKEN
-    try:
-        req = urllib.request.Request(f"{SERVER_URL}/")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode())
-            TOKEN = data.get("token")
-            print(f"[INFO] Server version: {data.get('version')}")
-            print(f"[INFO] Token: {TOKEN}")
-            return TOKEN is not None
-    except Exception as e:
-        print(f"[FAIL] Could not connect to server: {e}")
-        return False
-
 def make_headers():
-    """Return auth headers."""
+    """Return standard headers."""
     return {
-        "Authorization": f"Bearer {TOKEN}",
         "Content-Type": "application/json",
     }
 
@@ -60,7 +40,7 @@ def test_get(endpoint, expected_status="ok"):
         with urllib.request.urlopen(req, timeout=5) as resp:
             body = resp.read()
             content_type = resp.headers.get("Content-Type", "")
-            
+
             if "image" in content_type:
                 print(f"  [PASS] GET {endpoint} -> {resp.status} ({len(body)} bytes, {content_type})")
                 return True
@@ -103,100 +83,72 @@ def test_post(endpoint, body=None, expected_status="ok"):
         print(f"  [FAIL] POST {endpoint} -> {e}")
         return False
 
-def test_auth_failure():
-    """Test that endpoints reject invalid/missing tokens."""
-    print("\n--- Testing Authentication ---")
-    
-    # Test missing auth
+def test_server_connect():
+    """Test basic server connectivity."""
+    print("\n--- Connecting to Server ---")
     try:
-        req = urllib.request.Request(f"{SERVER_URL}/status")
+        req = urllib.request.Request(f"{SERVER_URL}/", headers=make_headers())
         with urllib.request.urlopen(req, timeout=5) as resp:
-            print(f"  [FAIL] GET /status without auth -> should have failed")
-            return False
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            print(f"  [PASS] GET /status without auth -> 401 (expected)")
-        else:
-            print(f"  [FAIL] GET /status without auth -> {e.code} (expected 401)")
-            return False
-    
-    # Test wrong token
-    try:
-        req = urllib.request.Request(
-            f"{SERVER_URL}/status",
-            headers={"Authorization": "Bearer WRONGTOKEN"}
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            print(f"  [FAIL] GET /status with wrong token -> should have failed")
-            return False
-    except urllib.error.HTTPError as e:
-        if e.code == 403:
-            print(f"  [PASS] GET /status with wrong token -> 403 (expected)")
-        else:
-            print(f"  [FAIL] GET /status with wrong token -> {e.code} (expected 403)")
-            return False
-    
-    return True
+            data = json.loads(resp.read().decode())
+            print(f"  [PASS] Server version: {data.get('version')}")
+            return True
+    except Exception as e:
+        print(f"[FAIL] Could not connect to server: {e}")
+        print("Make sure the server is running:")
+        print("  cd backend")
+        print("  python pocketpilot_server.py")
+        return False
 
 def run_tests():
     """Run all tests."""
     print("=" * 60)
     print("  PocketPilot Server Test Suite")
     print("=" * 60)
-    
-    # Step 1: Get token
-    print("\n--- Connecting to Server ---")
-    if not get_token():
-        print("\n[ERROR] Could not connect to server.")
-        print("Make sure the server is running:")
-        print("  cd backend")
-        print("  python pocketpilot_server.py")
+
+    # Step 1: Connect to server
+    if not test_server_connect():
         return False
-    
-    # Step 2: Test auth
-    if not test_auth_failure():
-        print("\n[WARN] Auth tests failed - continuing with other tests...")
-    
-    # Step 3: Test endpoints
+
+    # Step 2: Test endpoints
     print("\n--- Testing Endpoints ---")
-    
+
     all_pass = True
-    
+
     # Root
     all_pass &= test_get("/")
-    
+
     # Status
     all_pass &= test_get("/status")
-    
+
     # Power (these are safe - they just return confirmation)
     all_pass &= test_post("/power/lock")
-    
+
     # Volume
     all_pass &= test_post("/volume/set", {"level": 50})
     all_pass &= test_post("/volume/mute")
-    
+
     # Screenshot
     all_pass &= test_get("/screenshot")
-    
+
     # Mouse
     all_pass &= test_post("/mouse/move", {"dx": 10, "dy": 10})
     all_pass &= test_post("/mouse/click", {"button": "left"})
-    
+
     # Keyboard
     all_pass &= test_post("/keyboard/type", {"text": "Hello from test!"})
     all_pass &= test_post("/keyboard/key", {"key": "enter"})
-    
+
     # Media
     all_pass &= test_post("/media/play_pause")
     all_pass &= test_post("/media/next")
     all_pass &= test_post("/media/prev")
-    
+
     # App
     all_pass &= test_post("/app/open", {"name": "notepad"})
-    
+
     # Files
     all_pass &= test_get("/files?path=.")
-    
+
     # ==================== RESULTS ====================
     print("\n" + "=" * 60)
     if all_pass:
@@ -204,7 +156,7 @@ def run_tests():
     else:
         print("  SOME TESTS FAILED - check output above")
     print("=" * 60)
-    
+
     return all_pass
 
 if __name__ == "__main__":

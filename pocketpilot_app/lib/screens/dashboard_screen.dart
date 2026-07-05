@@ -7,6 +7,9 @@ import 'keyboard_screen.dart';
 import 'power_screen.dart';
 import 'screen_mirror_screen.dart';
 import 'file_browser_screen.dart';
+import 'media_screen.dart';
+import 'app_launcher_screen.dart';
+import 'volume_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final PocketPilotService service;
@@ -23,13 +26,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Map<String, dynamic>? _status;
   Timer? _statusTimer;
   bool _isConnected = true;
+  int _currentVolume = 50;
 
   @override
   void initState() {
     super.initState();
     _fetchStatus();
+    _fetchVolume();
     // Poll status every 5 seconds
-    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) => _fetchStatus());
+    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      _fetchStatus();
+      _fetchVolume();
+    });
   }
 
   @override
@@ -45,6 +53,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _status = status;
       _isConnected = _service.isConnected;
     });
+  }
+
+  Future<void> _fetchVolume() async {
+    final vol = await _service.volumeGet();
+    if (!mounted) return;
+    if (vol != null) {
+      setState(() => _currentVolume = vol);
+    }
+  }
+
+  Future<void> _volumeUp() async {
+    final newVol = (_currentVolume + 10).clamp(0, 100);
+    await _service.volumeSet(newVol);
+    setState(() => _currentVolume = newVol);
+  }
+
+  Future<void> _volumeDown() async {
+    final newVol = (_currentVolume - 10).clamp(0, 100);
+    await _service.volumeSet(newVol);
+    setState(() => _currentVolume = newVol);
   }
 
   Future<void> _disconnect() async {
@@ -319,12 +347,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildQuickActionsGrid() {
     final actions = [
-      _ActionItem(Icons.volume_up, 'Vol +', Colors.teal, () =>
-          _execute('Volume Up', () => _service.volumeSet(100))),
-      _ActionItem(Icons.volume_down, 'Vol -', Colors.teal, () =>
-          _execute('Volume Down', () => _service.volumeSet(0))),
+      _ActionItem(Icons.volume_up, 'Vol +', Colors.teal, _volumeUp),
+      _ActionItem(Icons.volume_down, 'Vol -', Colors.teal, _volumeDown),
       _ActionItem(Icons.volume_off, 'Mute', Colors.cyan, () =>
           _execute('Mute', _service.volumeMute)),
+      _ActionItem(Icons.lock, 'Lock', Colors.blueGrey, () =>
+          _execute('Lock', _service.powerLock)),
       _ActionItem(Icons.power_settings_new, 'Shutdown', Colors.red, () =>
           _confirmAndExecute('Shutdown computer?', 'Shutdown', _service.powerShutdown)),
       _ActionItem(Icons.restart_alt, 'Restart', Colors.orange, () =>
@@ -394,6 +422,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const Color(0xFF0F3460), () {
         Navigator.push(context, MaterialPageRoute(
             builder: (_) => ScreenMirrorScreen(service: _service)));
+      }),
+      _FeatureItem(Icons.music_note, 'Media Controls', 'Play/Pause, Next/Prev\nmusic and video',
+          const Color(0xFF0F3460), () {
+        Navigator.push(context, MaterialPageRoute(
+            builder: (_) => MediaScreen(service: _service)));
+      }),
+      _FeatureItem(Icons.rocket_launch, 'App Launcher', 'Launch apps with\npresets or custom name',
+          const Color(0xFF1A1A2E), () {
+        Navigator.push(context, MaterialPageRoute(
+            builder: (_) => AppLauncherScreen(service: _service)));
+      }),
+      _FeatureItem(Icons.volume_up, 'Volume Control', 'Precise volume slider\nwith presets and mute',
+          const Color(0xFF16213E), () {
+        Navigator.push(context, MaterialPageRoute(
+            builder: (_) => VolumeScreen(service: _service)));
       }),
       _FeatureItem(Icons.folder_open, 'File Browser', 'Browse and navigate\nlaptop filesystem',
           const Color(0xFF1A1A2E), () {

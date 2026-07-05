@@ -15,10 +15,10 @@ class PairingScreen extends StatefulWidget {
 class _PairingScreenState extends State<PairingScreen> {
   late final PocketPilotService _service = widget.service ?? PocketPilotService();
   final _ipController = TextEditingController();
-  final _tokenController = TextEditingController();
   final _portController = TextEditingController(text: '8000');
   bool _isConnecting = false;
   bool _isLoadingSaved = true;
+  bool _rememberMe = true;
 
   @override
   void initState() {
@@ -29,7 +29,6 @@ class _PairingScreenState extends State<PairingScreen> {
   @override
   void dispose() {
     _ipController.dispose();
-    _tokenController.dispose();
     _portController.dispose();
     super.dispose();
   }
@@ -40,7 +39,6 @@ class _PairingScreenState extends State<PairingScreen> {
 
     if (saved != null) {
       _ipController.text = saved['ip'] ?? '';
-      _tokenController.text = saved['token'] ?? '';
       _portController.text = saved['port'] ?? '8000';
     }
     setState(() => _isLoadingSaved = false);
@@ -48,19 +46,26 @@ class _PairingScreenState extends State<PairingScreen> {
 
   Future<void> _connect() async {
     final ip = _ipController.text.trim();
-    final token = _tokenController.text.trim();
     final portStr = _portController.text.trim();
     final port = int.tryParse(portStr) ?? 8000;
 
-    if (ip.isEmpty || token.isEmpty) {
-      _showError('Please enter both IP address and pairing token');
+    if (ip.isEmpty) {
+      _showError('Please enter the laptop IP address');
       return;
     }
 
     setState(() => _isConnecting = true);
 
-    // Save and set connection
-    await _service.saveConnection(ip, token, port: port);
+    // Only save if "Remember me" is checked
+    if (_rememberMe) {
+      await _service.saveConnection(ip, port: port);
+    } else {
+      // Set base URL in memory without persisting
+      await _service.saveConnection(ip, port: port);
+      // Immediately clear persisted settings so it won't auto-connect next time
+      await _service.clearPersistedConnection();
+    }
+
     final connected = await _service.testConnection();
 
     if (!mounted) return;
@@ -74,7 +79,7 @@ class _PairingScreenState extends State<PairingScreen> {
       );
     } else {
       setState(() => _isConnecting = false);
-      _showError('Could not connect to server. Check IP and token.');
+      _showError('Could not connect to server. Check IP and port.');
     }
   }
 
@@ -178,32 +183,33 @@ class _PairingScreenState extends State<PairingScreen> {
                   ),
                   keyboardType: TextInputType.number,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
-                // Token
-                TextField(
-                  controller: _tokenController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    labelText: 'Pairing Token',
-                    hintText: 'e.g. A3B7X9K2',
-                    labelStyle: TextStyle(color: Colors.grey[400]),
-                    hintStyle: TextStyle(color: Colors.grey[600]),
-                    prefixIcon: const Icon(Icons.vpn_key, color: Color(0xFFE94560)),
-                    filled: true,
-                    fillColor: const Color(0xFF16213E),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+                // Remember Me checkbox
+                Row(
+                  children: [
+                    SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: Checkbox(
+                        value: _rememberMe,
+                        onChanged: (val) => setState(() => _rememberMe = val ?? true),
+                        activeColor: const Color(0xFFE94560),
+                        checkColor: Colors.white,
+                        side: const BorderSide(color: Colors.grey),
+                      ),
                     ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFFE94560), width: 2),
+                    const SizedBox(width: 12),
+                    GestureDetector(
+                      onTap: () => setState(() => _rememberMe = !_rememberMe),
+                      child: Text(
+                        'Remember me',
+                        style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                      ),
                     ),
-                  ),
-                  textCapitalization: TextCapitalization.characters,
+                  ],
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
 
                 // Connect Button
                 SizedBox(
@@ -249,7 +255,7 @@ class _PairingScreenState extends State<PairingScreen> {
                       Text(
                         '1. Run python server.py on your laptop\n'
                         '2. Make sure phone is on same WiFi network\n'
-                        '3. Enter the laptop IP and token shown in terminal',
+                        '3. Enter the laptop IP shown in terminal',
                         style: TextStyle(color: Colors.grey[500], fontSize: 13, height: 1.5),
                       ),
                     ],

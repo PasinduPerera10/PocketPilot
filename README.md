@@ -71,6 +71,11 @@ Control your laptop from your phone over local WiFi. Works fully offline — no 
 
 3. **Start the server**:
 
+   **Option A — Double-click (easiest):**
+   - **Windows**: Double-click `backend/start_server.bat`
+   - **Linux/macOS**: Double-click `backend/start_server.sh` (or run `./start_server.sh` in terminal)
+
+   **Option B — Manual terminal command:**
    ```bash
    python pocketpilot_server.py
    ```
@@ -81,10 +86,9 @@ Control your laptop from your phone over local WiFi. Works fully offline — no 
      PocketPilot Server v2.0
    ============================================================
    Server running on: http://192.168.1.100:8000
-   Pairing Token:    A3B7X9K2
    ```
 
-   Keep this terminal open. Note the **IP address** and **Token** — you'll need them.
+   Keep this terminal open. Note the **IP address** — you'll need it.
 
 ---
 
@@ -127,7 +131,6 @@ If a pre-built APK is provided, install it directly on your Android phone.
 3. **Open the PocketPilot app** on your phone:
    - The app will start on the **Pairing Screen**
    - Enter the **laptop IP** (shown in terminal, e.g., `192.168.1.100`)
-   - Enter the **pairing token** (shown in terminal, e.g., `A3B7X9K2`)
    - Port is `8000` by default
    - Tap **Connect**
 
@@ -139,7 +142,7 @@ If a pre-built APK is provided, install it directly on your Android phone.
 
 | Screen | Purpose |
 |--------|---------|
-| **Pairing** | Enter IP, port, and token to connect |
+| **Pairing** | Enter IP and port to connect (with "Remember me" option) |
 | **Dashboard** | View system stats (CPU, RAM, battery), quick actions, navigate to features |
 | **Trackpad** | Full-screen swipe area for mouse control via WebSocket; tap to click, long-press to drag |
 | **Keyboard** | Type text, special keys, arrows, F1-F12, media controls, open apps |
@@ -151,10 +154,8 @@ If a pre-built APK is provided, install it directly on your Android phone.
 
 ## API Reference (Python Backend)
 
-All endpoints require `Authorization: Bearer <token>` header.
-
 ### System Status
-- `GET /` — Server info and token
+- `GET /` — Server info
 - `GET /status` — CPU%, RAM%, Battery%, IP, hostname
 
 ### Power
@@ -183,7 +184,7 @@ All endpoints require `Authorization: Bearer <token>` header.
 - `GET /files?path=C:\Users` — Directory listing
 
 ### WebSocket
-- `WS /ws/mouse` — Send token as first message, then JSON: `{"type":"move","dx":10,"dy":10}`
+- `WS /ws/mouse` — Send JSON messages: `{"type":"move","dx":10,"dy":10}`
 
 ---
 
@@ -277,15 +278,18 @@ New-NetFirewallRule -DisplayName "PocketPilot" -Direction Inbound -Protocol TCP 
 **Port already in use**
 Edit the `PORT` variable in `pocketpilot_server.py` or stop the other process using port 8000.
 
+**Manual start not working**
+- **Windows**: Run `start_server.bat` by double-clicking or from Command Prompt
+- **Linux/macOS**: Run `chmod +x start_server.sh && ./start_server.sh`
+- Or run directly: `python pocketpilot_server.py` from the `backend` folder
+
 ---
 
 ## Security Notes
 
-- All endpoints require Bearer token authentication
-- The pairing token is randomly generated on each server start
 - Communication is over HTTP (not HTTPS) — only use on trusted local networks
 - The server binds to `0.0.0.0:8000`, accessible only to devices on the same network
-- The token is sent in plaintext over WebSocket — consider this a trusted-local-network tool only
+- No authentication is required — consider this a trusted-local-network tool only
 
 ---
 

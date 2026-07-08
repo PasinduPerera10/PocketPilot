@@ -10,6 +10,7 @@ import 'file_browser_screen.dart';
 import 'media_screen.dart';
 import 'app_launcher_screen.dart';
 import 'volume_screen.dart';
+import 'laptop_settings_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final PocketPilotService service;
@@ -438,6 +439,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       //   Navigator.push(context, MaterialPageRoute(
       //       builder: (_) => VolumeScreen(service: _service)));
       // }),
+      _FeatureItem(Icons.settings_display, 'Laptop Settings', 'Change wallpaper,\nbrightness & display',
+          const Color(0xFF16213E), () {
+        Navigator.push(context, MaterialPageRoute(
+            builder: (_) => LaptopSettingsScreen(service: _service)));
+      }),
       _FeatureItem(Icons.folder_open, 'File Browser', 'Browse and navigate\nlaptop filesystem',
           const Color(0xFF1A1A2E), () {
         Navigator.push(context, MaterialPageRoute(

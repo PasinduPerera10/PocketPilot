@@ -282,6 +282,37 @@ class PocketPilotService {
     return result;
   }
 
+  // ==================== WALLPAPER ====================
+
+  /// Get wallpaper sources (directories with images)
+  Future<Map<String, dynamic>?> getWallpaperSources() async {
+    final result = await _get('/wallpaper/sources');
+    return result;
+  }
+
+  /// Set desktop wallpaper from a file path
+  Future<bool> setWallpaper(String path) async {
+    final result = await _post('/wallpaper/set', body: {'path': path});
+    return result?['status'] == 'ok';
+  }
+
+  // ==================== BRIGHTNESS ====================
+
+  /// Get current screen brightness level (0-100), returns null on failure
+  Future<int?> brightnessGet() async {
+    final result = await _get('/brightness');
+    if (result != null && result['brightness'] != null) {
+      return result['brightness'] as int;
+    }
+    return null;
+  }
+
+  /// Set screen brightness level (0-100)
+  Future<bool> brightnessSet(int level) async {
+    final result = await _post('/brightness/set', body: {'level': level});
+    return result?['status'] == 'ok';
+  }
+
   // ==================== WEBSOCKET (Live Trackpad) ====================
 
   /// Connect to WebSocket for low-latency trackpad control

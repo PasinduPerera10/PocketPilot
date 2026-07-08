@@ -78,6 +78,9 @@ class AppOpenRequest(BaseModel):
 class WallpaperSetRequest(BaseModel):
     path: str
 
+class BrightnessRequest(BaseModel):
+    level: int  # 0-100
+
 # ==================== SYSTEM COMMANDS ====================
 
 def get_local_ip() -> str:
@@ -631,6 +634,89 @@ async def wallpaper_get_sources_endpoint():
 @app.post("/wallpaper/set")
 async def wallpaper_set_endpoint(req: WallpaperSetRequest):
     return wallpaper_set(req.path)
+
+# ==================== BRIGHTNESS ENDPOINTS ====================
+
+def brightness_get() -> int:
+    """Get current screen brightness level (0-100)."""
+    try:
+        if IS_WINDOWS:
+            script = "Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness | Select-Object -ExpandProperty CurrentBrightness"
+            result = subprocess.run(["powershell", "-Command", script], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                return int(result.stdout.strip())
+        elif IS_MAC:
+            result = subprocess.run(
+                ["osascript", "-e", "do shell script \"ioreg -lr -d 1 -k Brightness | grep -m1 '\"Brightness\"' | cut -d= -f2\""],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                val = float(result.stdout.strip())
+                return int(val * 100)
+        elif IS_LINUX:
+            try:
+                result = subprocess.run(["xbacklight", "-get"], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0 and result.stdout.strip():
+                    return int(float(result.stdout.strip()))
+            except FileNotFoundError:
+                pass
+            try:
+                result = subprocess.run(["brightnessctl", "get"], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0 and result.stdout.strip():
+                    max_result = subprocess.run(["brightnessctl", "max"], capture_output=True, text=True, timeout=5)
+                    if max_result.returncode == 0 and max_result.stdout.strip():
+                        max_val = int(max_result.stdout.strip())
+                        current = int(result.stdout.strip())
+                        return int((current / max_val) * 100)
+            except FileNotFoundError:
+                pass
+    except Exception as e:
+        print(f"[ERROR] brightness_get failed: {e}")
+    return None
+
+def brightness_set(level: int):
+    """Set screen brightness level (0-100)."""
+    try:
+        level = max(0, min(100, level))
+        if IS_WINDOWS:
+            script = f'''
+            $brightness = {level}
+            $wmi = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods
+            if ($wmi) {{
+                $wmi.WmiSetBrightness(1, $brightness) | Out-Null
+            }}
+            '''
+            subprocess.run(["powershell", "-Command", script], check=True, capture_output=True, timeout=10)
+        elif IS_MAC:
+            script = f"set screen brightness to {level / 100.0}"
+            try:
+                subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+            except FileNotFoundError:
+                pass
+        elif IS_LINUX:
+            try:
+                subprocess.run(["xbacklight", "-set", str(level)], capture_output=True, timeout=5)
+            except FileNotFoundError:
+                try:
+                    max_result = subprocess.run(["brightnessctl", "max"], capture_output=True, text=True, timeout=5)
+                    if max_result.returncode == 0 and max_result.stdout.strip():
+                        max_val = int(max_result.stdout.strip())
+                        target = int((level / 100.0) * max_val)
+                        subprocess.run(["brightnessctl", "set", str(target)], capture_output=True, timeout=5)
+                except FileNotFoundError:
+                    return {"status": "error", "message": "No brightness control tool found (install xbacklight or brightnessctl)"}
+        return {"status": "ok", "message": f"Brightness set to {level}%"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/brightness")
+async def brightness_get_endpoint():
+    level = brightness_get()
+    return {"status": "ok", "brightness": level}
+
+@app.post("/brightness/set")
+async def brightness_set_endpoint(req: BrightnessRequest):
+    return brightness_set(req.level)
 
 # ==================== WEBSOCKET: LIVE TRACKPAD ====================
 
